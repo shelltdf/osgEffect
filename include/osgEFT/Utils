@@ -1,0 +1,60 @@
+
+#ifndef OSGEFT_UTILS_H
+#define OSGEFT_UTILS_H
+
+#include<osgEFT/Export>
+
+#include<iostream>
+#include<sstream>
+
+
+#include<osg/Group>
+#include<osg/NodeVisitor>
+#include<osg/MatrixTransform>
+#include<osg/Geode>
+
+
+namespace osgEFT
+{
+
+
+    //改进contains方法
+    inline bool contains(const osg::BoundingBox& bbox, const osg::Vec3& v)
+    {
+        return bbox.valid() &&
+            (v.x() >= bbox._min.x() && v.x() < bbox._max.x()) &&
+            (v.y() >= bbox._min.y() && v.y() < bbox._max.y()) &&
+            (v.z() >= bbox._min.z() && v.z() < bbox._max.z());
+    }
+
+
+    //定义八个象限
+    enum QUADRANT_TYPE
+    {
+        OT_Null = 0
+
+        , OT_XYZ = 1
+        , OT_nXYZ
+        , OT_nXnYZ
+        , OT_XnYZ
+
+        , OT_XYnZ
+        , OT_nXYnZ
+        , OT_nXnYnZ
+        , OT_XnYnZ
+    };
+
+
+
+    //从一个场景生成新的八叉树场景
+    //   节点是group类型 叶子是geode类型
+    //   只支持静态类型
+    OSGEFT_EXPORT osg::Group* newOctree( osg::Group* in_group );
+
+
+
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_UTILS_H

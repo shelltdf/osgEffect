@@ -1,0 +1,331 @@
+#ifndef OSGEFT_FRUSTRUM_H
+#define OSGEFT_FRUSTRUM_H
+
+#include<osg/Geometry>
+#include<osg/Point>
+
+//#include <osgCore/Icons>    //for icons
+
+namespace osgEFT
+{
+
+    class Frustrum
+        :public osg::Geometry
+    {
+    public:
+
+        class MyComputeBoundingBoxCallback
+            :public osg::Drawable::ComputeBoundingBoxCallback
+        {
+        public:
+            MyComputeBoundingBoxCallback() {}
+            virtual ~MyComputeBoundingBoxCallback() {}
+
+            virtual osg::BoundingBox computeBound(const osg::Drawable&) const
+            { 
+                return osg::BoundingBox(-1,-1,-1,1,1,1);
+            }
+        };
+
+        Frustrum()
+        {
+            this->setDataVariance(osg::Object::DYNAMIC);
+            this->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+            this->getOrCreateStateSet()->setAttributeAndModes(new osg::Point(5.0), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+
+            //this->setComputeBoundingBoxCallback( new MyComputeBoundingBoxCallback() );
+            this->setCullingActive(false);
+
+        }
+        virtual ~Frustrum() {}
+
+        void setMVP(osg::Matrix p, osg::Matrix v, osg::Vec4 color = osg::Vec4(1, 0, 1, 1))
+        {
+            //v.invert(v);
+
+            //顶点数组
+            std::vector<osg::Vec3> plist;
+
+            plist.push_back(osg::Vec3(-1, -1, -1));
+            plist.push_back(osg::Vec3(-1, 1, -1));
+            plist.push_back(osg::Vec3(1, 1, -1));
+            plist.push_back(osg::Vec3(1, -1, -1));
+
+            plist.push_back(osg::Vec3(-1, -1, 1));
+            plist.push_back(osg::Vec3(-1, 1, 1));
+            plist.push_back(osg::Vec3(1, 1, 1));
+            plist.push_back(osg::Vec3(1, -1, 1));
+
+            osg::Vec3Array* vertices(new osg::Vec3Array());
+            osg::Vec4Array* colors(new osg::Vec4Array());
+
+            //填充
+            //for (size_t i = 0; i < 8; i++)
+            //{
+            //    vertices->push_back(plist[i] * osg::Matrix::inverse(p) * osg::Matrix::inverse(v));
+            //}
+
+            osg::Matrix ipv = osg::Matrix::inverse(p) * osg::Matrix::inverse(v);
+
+            //近面
+            vertices->push_back(plist[0] * ipv);
+            vertices->push_back(plist[1] * ipv);
+            vertices->push_back(plist[1] * ipv);
+            vertices->push_back(plist[2] * ipv);
+            vertices->push_back(plist[2] * ipv);
+            vertices->push_back(plist[3] * ipv);
+            vertices->push_back(plist[3] * ipv);
+            vertices->push_back(plist[0] * ipv);
+
+            //远面
+            vertices->push_back(plist[4] * ipv);
+            vertices->push_back(plist[5] * ipv);
+            vertices->push_back(plist[5] * ipv);
+            vertices->push_back(plist[6] * ipv);
+            vertices->push_back(plist[6] * ipv);
+            vertices->push_back(plist[7] * ipv);
+            vertices->push_back(plist[7] * ipv);
+            vertices->push_back(plist[4] * ipv);
+
+            //边线
+            vertices->push_back(plist[0] * ipv);
+            vertices->push_back(plist[4] * ipv);
+            vertices->push_back(plist[1] * ipv);
+            vertices->push_back(plist[5] * ipv);
+            vertices->push_back(plist[2] * ipv);
+            vertices->push_back(plist[6] * ipv);
+            vertices->push_back(plist[3] * ipv);
+            vertices->push_back(plist[7] * ipv);
+
+            //远面中心轴
+
+
+            if (this->getNumPrimitiveSets() == 0)
+            {
+                this->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::LINES, 0, vertices->size()));
+            }
+            for (size_t i = 0; i < vertices->size(); i++)
+            {
+                colors->push_back(color);
+            }
+
+
+            //+X
+            vertices->push_back(
+                (plist[2] * ipv
+                    + plist[3] * ipv
+                    + plist[6] * ipv
+                    + plist[7] * ipv)
+                / 4.0
+            );
+            //+Y
+            vertices->push_back(
+                (plist[1] * ipv
+                    + plist[2] * ipv
+                    + plist[5] * ipv
+                    + plist[6] * ipv)
+                / 4.0
+            );
+            //+Z
+            vertices->push_back(
+                (plist[4] * ipv
+                    + plist[5] * ipv
+                    + plist[6] * ipv
+                    + plist[7] * ipv)
+                / 4.0
+            );
+
+            //XYZ
+            colors->push_back(osg::Vec4(1, 0, 0, 1));
+            colors->push_back(osg::Vec4(0, 1, 0, 1));
+            colors->push_back(osg::Vec4(0, 0, 1, 1));
+
+            //
+            if (this->getNumPrimitiveSets() == 1)
+            {
+                this->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::POINTS, 0, vertices->size()));
+            }
+
+
+            //
+            this->setVertexArray(vertices);
+            this->setColorArray(colors);
+            this->setColorBinding(osg::Geometry::BIND_PER_VERTEX);
+            this->dirtyDisplayList();
+            //this->dirtyBound();
+        }
+
+    private:
+
+    };
+
+
+    static void computLightView(osg::Vec4 world_light
+        , osg::Matrix camera_projection_matrix, osg::Matrix camera_view_matrix, float _near, float _far
+        , osg::Matrix& out_projection_matrix, osg::Matrix& out_view_matrix
+        , std::vector<osg::Vec3>* debug_points = 0
+        )
+    {
+
+        //取灯光位置
+        world_light.normalize();
+
+        //计算一个固定的摄像机投影区域
+        osg::Matrix pm = camera_projection_matrix;
+        double fovy; double aspectRatio; double zNear; double zFar;
+        pm.getPerspective(fovy, aspectRatio, zNear, zFar);
+        //printf("n=%f f=%f\n", zNear, zFar);
+        zNear = _near;
+        zFar = _far;
+        pm.makePerspective(fovy, aspectRatio, zNear, zFar);
+
+
+        //顶点数组
+        std::vector<osg::Vec3> plist;
+        plist.push_back(osg::Vec3(-1, -1, -1));
+        plist.push_back(osg::Vec3(-1, 1, -1));
+        plist.push_back(osg::Vec3(1, 1, -1));
+        plist.push_back(osg::Vec3(1, -1, -1));
+        plist.push_back(osg::Vec3(-1, -1, 1));
+        plist.push_back(osg::Vec3(-1, 1, 1));
+        plist.push_back(osg::Vec3(1, 1, 1));
+        plist.push_back(osg::Vec3(1, -1, 1));
+
+        //osg::BoundingSphere bs;
+        osg::BoundingBox bb;
+        std::vector<osg::Vec3> plist2; //转换后的椎体顶点
+        osg::Matrix ipv = osg::Matrix::inverse(pm) * osg::Matrix::inverse(camera_view_matrix);
+        for (size_t i = 0; i < 8; i++)
+        {
+            plist2.push_back(plist[i] * ipv);
+            bb.expandBy(plist2[plist2.size() - 1]);
+        }
+        if (debug_points)
+        {
+            *debug_points = plist2;
+        }
+
+        //printf( "r=%f\n" , bb.radius() );
+
+
+        //计算灯光视口
+        osg::Vec3 up = osg::Vec3(-camera_view_matrix(1, 0), -camera_view_matrix(1, 1),-camera_view_matrix(1, 2));
+        up.normalize();
+        out_view_matrix.makeLookAt(
+        //out_view_matrix = lookat(
+            bb.center() + osg::Vec3(
+                (bb.radius()+0) * world_light.x()
+                , (bb.radius() + 0) * world_light.y()
+                , (bb.radius() + 0) * world_light.z())
+            , bb.center()
+            //, osg::Z_AXIS
+            , up
+        );
+
+        //out_view_matrix.invert(out_view_matrix);//makeLookAt是场景坐标系的逆矩阵
+        //printf("vm = %f %f %f\n", out_view_matrix(3, 0), out_view_matrix(3, 1), out_view_matrix(3, 2));
+
+        //测试
+        //out_view_matrix.identity();
+
+        //printf(" x %f y %f z %f r %f\n", bb.center().x(), bb.center().y(), bb.center().z(), bb.radius());
+        //printf(" x %f y %f z %f r %f\n", bb.center().x() + world_light.x(), bb.center().y() + world_light.y(), bb.center().z() + world_light.z(), bb.radius());
+
+
+        //精确计算6个面的距离
+        //计算最佳远近距离
+#define BIG_NUM 100000;
+        float x_min = BIG_NUM;
+        float x_max = -BIG_NUM;
+        float y_min = BIG_NUM;
+        float y_max = -BIG_NUM;
+        float z_min = -BIG_NUM;  //z距离为0到-z
+        float z_max = BIG_NUM;
+        for (size_t i = 0; i < 8; i++)
+        {
+            osg::Vec3 p = plist2[i] * (out_view_matrix);
+
+            if (debug_points)
+            {
+                debug_points->push_back(p);
+            }
+
+            if (p.x() < x_min) { x_min = p.x(); }
+            if (p.x() > x_max) { x_max = p.x(); }
+
+            if (p.y() < y_min) { y_min = p.y(); }
+            if (p.y() > y_max) { y_max = p.y(); }
+
+            if (p.z() > z_min) { z_min = p.z(); }
+            if (p.z() < z_max) { z_max = p.z(); }
+
+            //printf("z=%f\n", p.z());
+        }
+        //printf("%f+n=%f f=%f\n", in_near, x_near, x_far);
+
+        //printf("xn=%f xf=%f\n", -z_min, -z_max);
+
+        //设置灯光投影
+        out_projection_matrix.makeOrtho(x_min, x_max, y_min, y_max
+            //, -z_min, -z_max      //严格边界范围
+            //, -z_max - 1000.0, -z_max //强制near距离
+            , -z_max - (z_min - z_max)*2.0, -z_max //强制near距离
+        );
+
+        //this->setMVP(out_projection_matrix, out_view_matrix, osg::Vec4(1, 1, 1, 1));
+    }
+
+
+
+
+    //调试显示对象
+    class DebugPoints
+        :public osg::Geometry
+    {
+    public:
+        DebugPoints()
+        {
+            this->setDataVariance(osg::Object::DYNAMIC);
+            this->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+            this->getOrCreateStateSet()->setAttributeAndModes(new osg::Point(10.0), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        }
+        virtual ~DebugPoints() {}
+
+        void setData(std::vector< osg::Vec3> points , osg::Vec4 color = osg::Vec4(1, 0, 1, 1))
+        {
+            osg::Vec3Array* vertices(new osg::Vec3Array());
+            osg::Vec4Array* colors(new osg::Vec4Array());
+            for (size_t i = 0; i < points.size(); i++)
+            {
+                vertices->push_back(points[i]);
+            }
+            for (size_t i = 0; i < vertices->size(); i++)
+            {
+                colors->push_back(color);
+            }
+
+            if (this->getNumPrimitiveSets() > 0)
+            {
+                this->removePrimitiveSet(0, this->getNumPrimitiveSets());
+            }
+            this->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::POINTS, 0, vertices->size()));
+
+
+            //
+            this->setVertexArray(vertices);
+            this->setColorArray(colors);
+            this->setColorBinding(osg::Geometry::BIND_PER_VERTEX);
+            this->dirtyDisplayList();
+            this->dirtyBound();
+        }
+
+    private:
+
+    };
+
+
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_FRUSTRUM_H

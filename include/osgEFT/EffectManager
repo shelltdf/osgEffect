@@ -1,0 +1,203 @@
+#ifndef OSGEFT_EFFECT_MANAGER_H
+#define OSGEFT_EFFECT_MANAGER_H
+
+#include <osgEFT/Export>
+
+#include <osg/Group>
+#include <osg/Light>
+#include <osg/Geometry>
+#include <osg/CullFace>
+#include <osg/Geode>
+#include <osg/Texture2D>
+#include <osgGA/GUIEventHandler>
+#include <osgUtil/CullVisitor>
+
+#include <osgEFT/Frustrum>
+#include <osgEFT/Coord>
+#include <osgEFT/Pass>
+#include <osgEFT/PassUpdater>
+#include <osgEFT/Target>
+
+
+
+/*
+* 
+* <compose>
+*   <slot name="default"/>
+*   <target name="color" type="DT_RGBA"/>
+*   <target name="depth" type="DT_DEPTH"/>
+*   <pass render_rect=false wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
+*       <output slot_name="default" CT = "COLOR_BUFFER">
+*       <output slot_name="depth" CT = "DEPTH_BUFFER">
+*       <updater type="shadowmap">
+*       <program vs="aa" fs = "bb">
+*   </pass>
+*   <pass render_rect=true wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
+*       <input target_name="color" unit=1>
+*   </pass>
+* </compose>
+*
+*/
+
+#define USE_CAMERA_CHILD 1
+
+namespace osgEFT
+{
+
+    class OSGEFT_EXPORT EffectManager
+        :public osg::Group
+    {
+    public:
+        EffectManager();
+        virtual ~EffectManager();
+
+        EffectManager(const EffectManager& ref, const osg::CopyOp& copyop = osg::CopyOp::SHALLOW_COPY)
+            :osg::Group(ref, copyop)
+        {}
+
+        META_Node(osgEFT, EffectManager);
+
+        //清理全部设置
+        void cleanUp()
+        {
+            mPassUpdater.clear();
+            mSlots.clear();
+            mTargets.clear();
+
+            for (size_t i = 0; i < mPasses.size(); i++)
+            {
+                this->removeChild(mPasses[i]->camera);
+            }
+            mPasses.clear();
+            
+            //this->removeChildren(0, this->getNumChildren());
+        }
+
+        //启动状态
+        //void setup( bool enable );
+
+        //输入场景操作
+        void addSlot(std::string name, osg::Node* node) { mSlots[name] = node; }
+        osg::Node* getSlot(std::string name) { auto it = mSlots.find(name); if (it != mSlots.end()) { return it->second; } else { return 0; } }
+        void delSlot(std::string name) { auto it = mSlots.find(name); if (it != mSlots.end()) { mSlots.erase(it); } }
+
+        //目标buffer操作
+        void newTarget(std::string name, TARGET_TYPE type); //简化类型
+        void newTarget(std::string name, GLint internal_format , GLenum data_type , GLenum format); //复杂类型
+        void newTarget(std::string name , osg::Texture* texture);
+        void newTargetImage(std::string name, TARGET_TYPE type, int w, int h);
+        void newTargetImage(std::string name, osg::Image* image);
+        Target* getTarget(std::string name) { auto it = mTargets.find(name); if (it != mTargets.end()) { return it->second; } else { return 0; } }
+
+        //pass操作
+        int addPass(osg::Camera* pass , bool render_rect = false
+            , osg::Camera::RenderOrder render_order = osg::Camera::NESTED_RENDER
+            , Coord w = Coord(1,0), Coord h = Coord(1,0)
+            , Coord x = Coord(0, 0), Coord y = Coord(0, 0));
+        int addPassFromMainCamera(osg::Camera* pass, osg::Group* camera_scene_root, Coord w = Coord(1, 0), Coord h = Coord(1, 0));
+        //int addPassFromMainCamera2(osg::View* view, osg::Camera* camera, Coord w = Coord(1, 0), Coord h = Coord(1, 0));
+        Pass* getPass(size_t i) { if (i < mPasses.size()) { return mPasses[i]; } else { return 0; } }
+        osg::StateSet* getPassStateSet(int i);
+
+        //链接场景关系
+        void setInput(int pass_id, std::string node_name, unsigned int cull_mask = 0xffffffff);
+        void setInput( int pass_id, int unit_id, std::string target_name);
+        void setOutput(int pass_id, osg::Camera::BufferComponent component, std::string target_name, unsigned int multisampleSamples=0);
+
+        //调试显示
+        void addDebugPass();
+
+        //窗口尺寸变化
+        void resize(float w,float h);
+
+
+        void setPassUpdater(PassUpdater* pu)
+        {
+            mPassUpdater.push_back(pu);
+        }
+
+        void update()
+        {
+            for (size_t i = 0; i < mPassUpdater.size(); i++)
+            {
+                mPassUpdater[i]->run();
+            }
+        }
+
+#if !USE_CAMERA_CHILD
+        void traverse(osg::NodeVisitor& nv)override
+        {
+            // define passes if necessary
+            //if (_passes.empty()) {
+            //    define_passes();
+            //}
+
+            // special actions must be taken if the node visitor is actually a CullVisitor
+            osgUtil::CullVisitor *cv = dynamic_cast<osgUtil::CullVisitor *>(&nv);
+            if (!cv)
+            {
+                return;
+            }
+
+
+            //osg::ref_ptr<osgUtil::RenderStage> rs = cv->getCurrentRenderStage();
+            //osg::ref_ptr<osg::StateSet> ss = cv->getCurrentRenderStage()->getStateSet();
+            osg::Camera* cam = cv->getCurrentCamera();
+            osg::ref_ptr<osg::StateSet> ss = cv->getCurrentCamera()->getStateSet();
+
+            if (ss) cv->popStateSet();
+            if (ss) cv->pushStateSet(new osg::StateSet());
+
+            // traverse all passes
+            for (size_t i = 0; i<mPasses.size(); ++i)
+            {
+                if (mPasses[i]->is_main_camera)
+                {
+                    continue;
+                }
+
+                // push the i-th pass' StateSet if necessary
+                //if (cv) 
+                {
+                    cv->pushStateSet(mPasses[i]->camera->getStateSet());
+                }
+
+                //// traverse the override node if defined, otherwise
+                //// traverse children as a Group would do
+                //osg::Node *override = getOverrideChild(i);
+                //if (override) {
+                //    override->accept(nv);
+                //}
+                //else {
+                //    fx->inherited_traverse(nv);
+                //}
+
+                mPasses[i]->camera->accept(nv);
+
+                // pop the StateSet if necessary
+                //if (cv) 
+                {
+                    cv->popStateSet();
+                }
+            }
+
+            //if (ss) cv->pushStateSet(ss);
+        }
+#endif
+
+    private:
+
+        //
+        std::map< std::string, osg::ref_ptr< osg::Node > > mSlots;
+        std::map< std::string, osg::ref_ptr< Target > > mTargets;
+        std::vector< osg::ref_ptr< Pass > > mPasses;
+        std::vector< osg::ref_ptr< PassUpdater > > mPassUpdater;
+
+    };
+
+}//namespace osgEFT
+
+#endif//OSGEFT_EFFECT_MANAGER_H
+
+
+

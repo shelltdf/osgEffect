@@ -1,0 +1,46 @@
+SET(NIUBI_SETUP_TARGET_NAME osgEFT)
+
+SET(HEADER_PATH ${PROJECT_SOURCE_DIR}/include/${NIUBI_SETUP_TARGET_NAME})
+INCLUDE_DIRECTORIES(AFTER ${OSG_INCLUDE_DIR})
+
+
+SET(NIUBI_SETUP_HEADERS
+
+    ${HEADER_PATH}/Export
+    
+    ${HEADER_PATH}/Coord
+    ${HEADER_PATH}/Pass
+    ${HEADER_PATH}/PassUpdater
+    ${HEADER_PATH}/Target
+    
+    ${HEADER_PATH}/EffectManager
+    ${HEADER_PATH}/Frustrum
+    
+    ${HEADER_PATH}/Utils
+)
+SET(NIUBI_SETUP_SOURCES
+
+    Pass.cpp
+    PassUpdater.cpp
+    Target.cpp
+    
+    EffectManager.cpp
+    
+    Utils.cpp
+)
+
+
+NIUBI_SETUP_LIBRARY(ON)
+TARGET_LINK_LIBRARIES( ${NIUBI_SETUP_TARGET_NAME}
+    ${EXTERNAL_LIBRARIES}
+    debug ${OPENTHREADS_LIBRARY_DEBUG} optimized ${OPENTHREADS_LIBRARY}
+    debug ${OSG_LIBRARY_DEBUG} optimized ${OSG_LIBRARY}
+    debug ${OSGDB_LIBRARY_DEBUG} optimized ${OSGDB_LIBRARY}
+    debug ${OSGUTIL_LIBRARY_DEBUG} optimized ${OSGUTIL_LIBRARY}
+    debug ${OSGGA_LIBRARY_DEBUG} optimized ${OSGGA_LIBRARY}
+    debug ${OSGVIEWER_LIBRARY_DEBUG} optimized ${OSGVIEWER_LIBRARY}
+    # debug ${OSGTEXT_LIBRARY_DEBUG} optimized ${OSGTEXT_LIBRARY}
+    )
+# NIUBI_SETUP_INSTALL()
+# NIUBI_SETUP_INSTALL_INCLUDE()
+# NIUBI_SETUP_DOCUMENT()

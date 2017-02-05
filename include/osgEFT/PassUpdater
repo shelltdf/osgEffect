@@ -1,0 +1,1411 @@
+
+#ifndef OSGEFT_PASS_UPDATER_H
+#define OSGEFT_PASS_UPDATER_H
+
+#include<osgEFT/Export>
+
+#include <iostream>
+
+#include <osg/Camera>
+#include <osg/TexMat>
+#include <osg/Node>
+#include <osg/PagedLOD>
+#include <osg/io_utils>
+#include <osg/NodeVisitor>
+#include <osg/Geode>
+
+#include <osgEFT/Pass>
+#include <osgEFT/Frustrum>
+
+
+namespace osgEFT
+{
+
+    class OSGEFT_EXPORT PassUpdater
+        //:public osg::NodeCallback
+        //:public osg::Camera::DrawCallback
+        :public osg::Referenced
+    {
+    public:
+        PassUpdater() {}
+        virtual ~PassUpdater() {}
+
+        virtual void onSetup(osg::Camera* camera) = 0;
+        virtual void run() = 0;
+
+        osg::Camera* camera;
+        osg::observer_ptr<Pass> pass; //包含自己的pass
+    };
+
+    class OSGEFT_EXPORT PassUpdater_lightspace
+        :public PassUpdater
+    {
+    public:
+        PassUpdater_lightspace() {}
+        virtual ~PassUpdater_lightspace() {}
+
+        virtual void onSetup(osg::Camera* _camera)
+        {
+            camera = _camera;
+
+            camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
+            camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
+
+            //osg::StateSet* ss = camera->getOrCreateStateSet();
+
+            //osg::ref_ptr<osg::CullFace> cull_face = new osg::CullFace;
+            //cull_face->setMode(osg::CullFace::FRONT_AND_BACK);
+            //ss->setAttribute(cull_face.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+            //ss->setMode(GL_CULL_FACE, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        }
+
+        //virtual bool run(osg::Object* object, osg::Object* data)
+        //void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        //virtual void operator () (const osg::Camera& _camera) const
+        virtual void run()
+        {
+            //osg::Camera* camera = const_cast<osg::Camera*>(&_camera);
+
+            //printf("a");
+            //osg::Camera* camera = dynamic_cast<osg::Camera*>(node);
+            if (camera)
+            {
+                //std::cout << "ls" << in_camera->getProjectionMatrix();
+
+                //printf("c");
+
+                //计算投影区域
+                osg::Vec4 light = in_light->getPosition();
+                osg::Matrix pm = in_camera->getProjectionMatrix();
+                osg::Matrix vm = in_camera->getViewMatrix();
+                osg::Matrix out_pm;
+                osg::Matrix out_vm;
+                osgEFT::computLightView(light, pm, vm, in_near, in_far, out_pm, out_vm);
+
+
+                //
+                camera->setViewMatrix(out_vm);
+                camera->setProjectionMatrix(out_pm);
+
+
+                //double left; double right;
+                //double bottom; double top;
+                //double zNear; double zFar;
+                //bool b = camera->getProjectionMatrixAsOrtho(left, right, bottom, top,zNear, zFar);
+                //printf("new n = %f , f = %f\n", zNear, zFar);
+                //std::cout << "new" << out_pm;
+
+
+                //计算shader用的投影矩阵
+                //osg::Matrix bias(
+                //    0.5, 0.0, 0.0, 0.0,
+                //    0.0, 0.5, 0.0, 0.0,
+                //    0.0, 0.0, 0.5, 0.0,
+                //    0.5, 0.5, 0.5, 1.0);
+                //out_mat_light = camera->getViewMatrix() * camera->getProjectionMatrix() * bias;
+                //out_mat_light = bias * camera->getProjectionMatrix() * camera->getViewMatrix() ;
+                //out_mat_light = bias * out_pm * out_vm;
+                osg::Matrix out_mat_light = out_vm * out_pm;// *bias;
+
+                //printf("vm = %f %f %f\n", out_vm(3, 0), out_vm(3, 1), out_vm(3, 2));
+                //printf("vm = %f %f %f\n", out_vm(0, 3), out_vm(1, 3), out_vm(2, 3));
+
+                //osg::StateSet* ss = camera->getOrCreateStateSet();
+                if (in_ss.valid())
+                {
+                    in_ss->setTextureAttributeAndModes(in_shadow_unit
+                        , new osg::TexMat(out_mat_light), osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+                }
+            }
+
+            //traverse(node, nv);
+            //return traverse(object, data);
+        }
+
+        osg::observer_ptr<osg::Camera> in_camera;//输入观察摄像机
+        //osg::observer_ptr<osg::Node> in_scene; //输入场景
+        osg::observer_ptr<osg::Light> in_light; //输入灯光对象
+        osg::observer_ptr<osg::StateSet> in_ss; //输入ss
+        //osg::observer_ptr<Frustrum> in_frustrum; //
+        float in_near;
+        float in_far;
+        int in_shadow_unit;
+
+    private:
+        //osg::Matrix out_mat_light; //输出shader用的矩阵
+    };
+
+#if 0
+    //计算远近距离
+    class getNearFar
+        :public osg::NodeVisitor
+    {
+    public:
+        getNearFar(osg::Vec3 camera_world_pos)
+            :osg::NodeVisitor(osg::NodeVisitor::TraversalMode::TRAVERSE_ALL_CHILDREN)
+        {
+            c = camera_world_pos;
+            znear = FLT_MAX;
+            zfar = FLT_MIN;
+        }
+        virtual ~getNearFar() {}
+
+        virtual void apply(osg::Transform& transform)
+        {
+            osg::Matrix m = m_matrix;
+            transform.computeLocalToWorldMatrix(m_matrix, 0);
+            traverse(transform);
+            m_matrix = m;
+        }
+
+        void point(const osg::Vec3& wp)
+        {
+            float d = (wp - c).length();
+            if (d > zfar) zfar = d;
+            if (d < znear) znear = d;
+        }
+
+        virtual void apply(osg::Drawable& drawable)
+        {
+            //osg::Vec3 wp = drawable.getBound().center() * m_matrix; //世界坐标
+
+            //osg::Vec3 wp = drawable.getBoundingBox().center() * m_matrix; //世界坐标
+
+            osg::Vec3 wp = drawable.getBoundingBox()._min * m_matrix;
+            point(wp);
+
+            wp = drawable.getBoundingBox()._max * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMax(), drawable.getBoundingBox().yMin(), drawable.getBoundingBox().zMin()) * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMax(), drawable.getBoundingBox().yMax(), drawable.getBoundingBox().zMin()) * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMax(), drawable.getBoundingBox().yMin(), drawable.getBoundingBox().zMax()) * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMin(), drawable.getBoundingBox().yMax(), drawable.getBoundingBox().zMin()) * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMin(), drawable.getBoundingBox().yMax(), drawable.getBoundingBox().zMax()) * m_matrix;
+            point(wp);
+
+            wp = osg::Vec3(drawable.getBoundingBox().xMin(), drawable.getBoundingBox().yMin(), drawable.getBoundingBox().zMax()) * m_matrix;
+            point(wp);
+        }
+
+        osg::Matrix m_matrix;//当前矩阵
+        float znear;
+        float zfar;
+        osg::Vec3 c; //摄像机世界坐标
+    };
+#endif
+
+    class OSGEFT_EXPORT PassUpdater_nearfar
+        :public PassUpdater
+    {
+    public:
+        PassUpdater_nearfar() {}
+        virtual ~PassUpdater_nearfar() {}
+
+        virtual void onSetup(osg::Camera* _camera)
+        {
+            camera = _camera;
+
+        }
+
+        osg::Camera* getParentCamera(osg::Group* cam) const
+        {
+            for (size_t i = 0; i < cam->getNumParents(); i++)
+            {
+                osg::Group*  p = cam->getParent(i);
+                osg::Camera* c = dynamic_cast<osg::Camera*>(p);
+                if (c)
+                {
+                    return c;
+                }
+            }
+
+            for (size_t i = 0; i < cam->getNumParents(); i++)
+            {
+                osg::Group* p = cam->getParent(i);
+                osg::Camera* c = getParentCamera(p);
+                if (c) return c;
+            }
+
+            return 0;
+        }
+
+        //virtual bool run(osg::Object* object, osg::Object* data)
+        //void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        //virtual void operator () (const osg::Camera& camera) const
+        virtual void run()
+        {
+            //printf("a\n");
+            //osg::Camera* camera = dynamic_cast<osg::Camera*>(node);
+            if (camera)
+            {
+                //std::cout << "nf"<< camera->getProjectionMatrix();
+
+                //osg::ref_ptr<getNearFar> nf = new getNearFar(osg::Matrix::inverse(camera->getViewMatrix()).getTrans());
+                //camera->accept(*nf);
+
+
+                double fovy; double aspectRatio; double zNear; double zFar;
+                //bool b = camera->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar);
+                //camera->setProjectionMatrixAsPerspective(fovy, aspectRatio, nf->znear, nf->zfar);
+
+
+                //if (in_ss.valid())
+                {
+                    //osg::Camera* c = const_cast<osg::Camera*>(&camera);
+
+                    //子摄像机没有设置MVP的时候 会使用父摄像机的矩阵 所以不能直接get到他的MVP
+
+                    
+                    bool b = camera->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar);
+                    osg::Matrix vm = camera->getViewMatrix();
+
+                    out_mvp = camera->getViewMatrix() * camera->getProjectionMatrix();
+
+                    //double left; double right;
+                    //double bottom; double top;
+                    //double zNear; double zFar;
+                    //bool b = camera.getProjectionMatrixAsFrustum(left, right, bottom, top, zNear, zFar);
+
+                    //if (b)  printf("true %s\n", in_main_camera->getName().c_str());
+
+                    //printf("n = %f , f = %f\n", nf->znear, nf->zfar);
+
+                    //if (!b)
+                    //{
+                    //    //这里只向上搜索一个父节点摄像机 以后有可能要搜索多层
+                    //    osg::Camera* pc = getParentCamera((osg::Group*)camera->asGroup());
+                    //    if (pc)
+                    //    {
+                    //        //b = pc->getProjectionMatrixAsFrustum(left, right, bottom, top, zNear, zFar);
+                    //        b = pc->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar);
+                    //        vm = pc->getViewMatrix();
+
+                    //        //std::cout << "pc" << pc->getProjectionMatrix();
+                    //        std::cout << "pc" << pc->getName().c_str();
+
+                    //    }
+                    //}
+
+                    //printf("n = %f , f = %f\n", zNear, zFar);
+
+
+                    //osg::BoundingSphere bs = camera->getBound();
+                    //osg::BoundingSphere bs;
+                    //for (size_t i = 0; i < c->getNumChildren(); i++)
+                    //{
+                    //    bs.expandBy(c->getChild(i)->getBound());
+                    //}
+
+                    //printf("r = %f\n", bs.radius());
+
+                    //float d = (bs.center() * vm).length();
+                    //printf("n = %f , f = %f\n", d - bs.radius(), d + bs.radius());
+
+
+                    //if(b)printf("T");
+                    //else printf("F");
+
+                    //osg::Vec4 fanf(fovy, aspectRatio, d - bs.radius(), d + bs.radius());
+                    osg::Vec4 fanf(fovy, aspectRatio, zNear, zFar);
+                    //osg::Vec4 fanf(fovy, aspectRatio, 0.01, 100);
+                    out_fanf = fanf;
+
+                    if (in_ss.valid())
+                    {
+                        in_ss->addUniform(new osg::Uniform("osg_fanf", fanf)
+                            , osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+                    }
+
+                    camera->getOrCreateStateSet()->addUniform( new osg::Uniform("osg_fanf", fanf)
+                        , osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+
+                    //in_ss->setTextureAttributeAndModes(in_shadow_unit, new osg::TexMat(out_mat_light), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+                }
+            }
+            //traverse(node, nv);
+        }
+
+        //osg::observer_ptr<osg::Camera> in_camera;//输入观察摄像机
+        osg::observer_ptr<osg::StateSet> in_ss; //输入ss
+        osg::observer_ptr<osg::Camera> in_main_camera;//输入观察摄像机
+
+        osg::Vec4 out_fanf;
+        osg::Matrix out_mvp;
+
+    private:
+
+    };
+
+
+#if 1
+    class OSGEFT_EXPORT PassUpdater_cull
+        :public PassUpdater
+    {
+    public:
+
+        class CullVisitor
+            :public osg::NodeVisitor
+        {
+        public:
+            CullVisitor(osg::Matrix* _mvp
+                //, osg::Vec4* _fanf
+                , std::vector<unsigned short>& _depth_list
+                //,unsigned short* _data
+                //,osg::Vec2 _viewport2depthimage
+                ,int _image_size)
+                :osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN)
+                //, fanf(_fanf)
+                , depth_list(_depth_list)
+                //, data(_data)
+                , mvp(_mvp)
+                //, viewport2depthimage(_viewport2depthimage)
+                , image_size(_image_size)
+            {
+                show_num = 0;
+                all_num = 0;
+
+                bs_list.resize(100000);
+                geode_list.resize(100000);
+                //matrix_list.resize(100000);
+                list_size = 0;
+            }
+            virtual ~CullVisitor() {}
+
+            virtual void apply(osg::Transform& transform)
+            {
+                //osg::Camera* camera = dynamic_cast<osg::Camera*>(&transform);
+
+                osg::Matrix m = m_matrix;
+                transform.computeLocalToWorldMatrix(m_matrix, 0);
+                traverse(transform);
+                m_matrix = m;
+            }
+
+            //屏蔽摄像机遍历
+            //virtual void apply(osg::Camera& camera)
+            //{
+            //    traverse(camera);
+            //}
+
+            //virtual void apply(osg::Node& node)
+            virtual void apply(osg::Geode& node)
+            {
+                //osg::PagedLOD* plod = dynamic_cast<osg::PagedLOD*>(&node);
+                //osg::Geode* geode = dynamic_cast<osg::Geode*>(&node);
+                osg::Geode* geode = &node;
+                //if (geode && geode->getNumDrawables()>0)
+                {
+                    osg::BoundingSphere bs = geode->getBound();
+                    osg::Vec3 center = bs.center() * m_matrix;
+                    bs_list[list_size] = osg::Vec4(center.x(), center.y(), center.z(), bs.radius());
+
+                    geode_list[list_size] = geode;
+                    //matrix_list[a] = m_matrix;
+
+                    //geode_list.push_back(geode);
+                    //matrix_list.push_back(m_matrix);
+
+                    list_size++;
+
+#if 0
+                    //printf("n");
+                    //osg::Drawable* d = geode->getDrawable(0);
+
+                    //计算当前对象的box包裹体 得到6个点
+
+                    //计算全局坐标系下的正确BBOX
+                    osg::BoundingBox bbox = geode->getBoundingBox();
+                    float s = bbox.xMax() - bbox.xMin();
+                    float t = bbox.yMax() - bbox.yMin();
+                    float r = bbox.zMax() - bbox.zMin();
+                    osg::Vec3 m_min = bbox._min;
+                    osg::Vec3 m_max = bbox._max;
+                    osg::Vec3 p2 = bbox._min + osg::Vec3(s, 0, 0);
+                    osg::Vec3 p3 = bbox._min + osg::Vec3(0, t, 0);
+                    osg::Vec3 p4 = bbox._min + osg::Vec3(0, 0, r);
+                    osg::Vec3 p5 = bbox._min + osg::Vec3(s, t, 0);
+                    osg::Vec3 p6 = bbox._min + osg::Vec3(0, t, r);
+                    osg::Vec3 p7 = bbox._min + osg::Vec3(s, 0, r);
+
+                    osg::Matrix mat_st = m_matrix;
+                    //mat_st.setRotate(osg::Quat());  //去掉旋转值
+                    m_min = m_min * mat_st;
+                    m_max = m_max * mat_st;
+                    p2 = p2 * mat_st;
+                    p3 = p3 * mat_st;
+                    p4 = p4 * mat_st;
+                    p5 = p5 * mat_st;
+                    p6 = p6 * mat_st;
+                    p7 = p7 * mat_st;
+
+                    osg::BoundingBox new_bbox(m_min, m_max);
+                    if (!new_bbox.valid())
+                    {
+                        std::cout << "error !new_bbox.valid()" << std::endl;
+                    }
+
+                    //计算视口空间距离 [-1 to 1] 深度是[-1 to 1]
+                    m_min = m_min * (*mvp);
+                    m_max = m_max * (*mvp);
+                    p2 = p2 * (*mvp);
+                    p3 = p3 * (*mvp);
+                    p4 = p4 * (*mvp);
+                    p5 = p5 * (*mvp);
+                    p6 = p6 * (*mvp);
+                    p7 = p7 * (*mvp);
+
+                    //std::cout << "m_min " << m_min.x()
+                    //    << " " << m_min.y()
+                    //    << " " << m_min.z() << std::endl;
+                    //std::cout << "m_max " << m_max.x()
+                    //    << " " << m_max.y()
+                    //    << " " << m_max.z() << std::endl;
+
+                    //std::cout << "bb:" << m_max.x()- m_min.x() << std::endl;
+                    //std::cout << mvp->getTrans().x()
+                    //    << " " << mvp->getTrans().y()
+                    //    << " " << mvp->getTrans().z() << std::endl;
+
+
+                    //std::cout << m_min.x() << " " << m_min.y() << " " << m_min.z() << std::endl;
+                    //std::cout << m_max.x() << " " << m_max.y() << " " << m_max.z() << std::endl;
+
+
+                    //根据xy从depth_list获取距离
+                    //float d0 = sample(new_bbox.center());
+                    unsigned short d0 = sample(m_min);
+                    unsigned short d1 = sample(m_max);
+                    unsigned short d2 = sample(p2);
+                    unsigned short d3 = sample(p3);
+                    unsigned short d4 = sample(p4);
+                    unsigned short d5 = sample(p5);
+                    unsigned short d6 = sample(p6);
+                    unsigned short d7 = sample(p7);
+
+                    //std::cout << d0 << std::endl;
+                    bool hide = false;
+                    int s0 = compare(d0, m_min);
+                    int s1 = compare(d1, m_max);
+                    int s2 = compare(d2, p2);
+                    int s3 = compare(d3, p3);
+                    int s4 = compare(d4, p4);
+                    int s5 = compare(d5, p5);
+                    int s6 = compare(d6, p6);
+                    int s7 = compare(d7, p7);
+
+                    //如果两个点都不可见 才设置为不显示
+                    if (
+                        s0 == 0 && s1 == 0
+                        && s2 == 0 && s3 == 0
+                        && s4 == 0 && s5 == 0
+                        && s6 == 0 && s7 == 0
+                        )
+                    {
+                        hide = true;
+                        //std::cout << "d0" << std::endl;
+                    }
+                    //if (s1 == 1)
+                    //{
+                    //    hide = false;
+                    //    //std::cout << "d1" << std::endl;
+                    //}
+
+                    //if (s0 != 1 && s1 != 1)
+                    //{
+                    //    hide = false;
+                    //    //std::cout << "H" << std::endl;
+                    //}
+
+                    //std::cout << "d1" << s0 << "d2" << s1 << std::endl;
+
+                    if (hide)
+                    {
+                        //std::cout << "h" << std::endl;
+                        geode->setNodeMask(0xfffffffe);
+                        //geode->setCullingActive(false);
+                    }
+                    else
+                    {
+                        //std::cout << "s" << std::endl;
+                        geode->setNodeMask(0xffffffff);
+                        //geode->setCullingActive(true);
+                        show_num++;
+                    }
+                    //geode->setCullingActive(false);
+
+                    all_num++;
+#endif
+
+                }
+
+                //traverse(node);
+            }
+
+            //0 不可见
+            //1 界内可见
+            //2 超界可见
+            int compare(unsigned short d, const osg::Vec3& view_point)
+            {
+                float ds = view_point.z() * 0.5 + 0.5;
+                ds *= 0xFFFF;
+
+                //std::cout << "d:" << d << " z:" << ds << std::endl;
+
+                float offset = 0xFFFF * 0.1; //不知道为什么
+
+                if (d >= 1 )
+                {
+                    //在屏幕内   
+                    if (d >= ds - offset)
+                    {
+                        //此点可见
+                        return 1;
+                    }
+                    //return 0;
+                }
+                else
+                {
+                    //超出屏幕
+                    //if (0xFFFF > ds - offset)
+                    {
+                        //此点可见
+                        return 2;
+                    }
+                }
+                return 0;
+            }
+
+            unsigned short sample(const osg::Vec3& view_point )
+            {
+                //std::cout << view_point.x() << " " << view_point.y() << std::endl;
+
+                //int x = view_point.x() * viewport2depthimage.x();
+                //int y = view_point.y() * viewport2depthimage.y();
+
+                //[-1 to 1] to [0 to 1]*image_size
+                int x = (view_point.x() * 0.5 + 0.5) * image_size;
+                int y = (view_point.y() * 0.5 + 0.5) * image_size;
+
+                //std::cout << x << " " << y << std::endl;
+
+                if (x >= 0 && x < image_size 
+                    && y >= 0 && y < image_size)
+                {
+                    size_t index = y * image_size + x;
+                    if (index >= 0 && index < depth_list.size()) return depth_list[index];
+                    //if (index >= 0 && index < image_size*image_size) return data[index];
+                }
+                return 0; //返回0表示无效
+            }
+
+        private:
+
+            //unsigned short* data;
+            int image_size;
+            //osg::Vec2 viewport2depthimage;//视口到深度数组转换坐标
+            osg::Matrix* mvp;  //mv
+            //osg::Vec4* fanf;   //输入的远近参数
+            std::vector<unsigned short>& depth_list;
+
+            osg::Matrix m_matrix;//当前矩阵
+
+
+        public:
+            int show_num;
+            int all_num;
+
+            int list_size;
+            std::vector< osg::Geode* > geode_list;
+            //std::vector< osg::Matrix > matrix_list;
+            std::vector< osg::Vec4 > bs_list;
+
+        };
+
+
+        PassUpdater_cull() {}
+        virtual ~PassUpdater_cull() {}
+
+        virtual void onSetup(osg::Camera* _camera)
+        {
+            camera = _camera;
+        }
+        //unsigned short* data;
+
+        //virtual bool run(osg::Object* object, osg::Object* data)
+        //void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        //virtual void operator () (const osg::Camera& camera) const
+        virtual void run()
+        {
+            //osg::Camera* camera = dynamic_cast<osg::Camera*>(node);
+            if (camera)
+            {
+                //printf("a");
+
+                //一次性转换全部距离[0-1] 为了节约计算量
+                if (depth_list.size() != in_image->s()*in_image->t())
+                    depth_list.resize(in_image->s()*in_image->t());
+                unsigned short* data = (unsigned short*)in_image->data(); //GL_FLOAT [0-1]
+#pragma omp parallel for
+                for (size_t i = 0; i < depth_list.size(); i++)
+                {
+                    depth_list[i] = data[i];// *(in_fanf.w() - in_fanf.z()) + in_fanf.z(); //计算真实距离
+                }
+
+                //一次性计算MVP矩阵 为了节约计算量
+                //osg::Matrix mvp = in_camera->getViewMatrix() * in_camera->getProjectionMatrix();
+
+                //窗口坐标to深度图坐标转换比例 为了节约计算量
+                //osg::Viewport* vp = in_camera->getViewport();
+                //osg::Vec2 viewport2depthimage(in_image->s() / vp->width(), in_image->t() / vp->height());
+
+                //遍历当前摄像机下的全部节点 设置对应的cull
+                osg::ref_ptr< CullVisitor > cull = 
+                    new CullVisitor(in_mvp/*, in_fanf*/, depth_list/*, viewport2depthimage*/, in_image->s());
+
+                //
+                camera->accept(*cull);
+
+                //Pass* pass = this->pass.get();
+                //if (pass->is_main_camera)
+                //{
+                //    pass->main_camera_scene_root->accept(*cull);
+                //}
+                //else
+                //{
+                //    camera->accept(*cull);
+                //}
+
+#pragma omp parallel for
+                //for (int i = 0; i < cull->geode_list.size(); i++)
+                for (int i = 0; i < cull->list_size; i++)
+                {
+                    osg::Geode* geode = cull->geode_list[i];
+
+                    ////计算全局坐标系下的正确BBOX
+                    //osg::BoundingBox bbox = geode->getBoundingBox();
+                    //float s = bbox.xMax() - bbox.xMin();
+                    //float t = bbox.yMax() - bbox.yMin();
+                    //float r = bbox.zMax() - bbox.zMin();
+                    //osg::Vec3 m_min = bbox._min;
+                    //osg::Vec3 m_max = bbox._max;
+                    //osg::Vec3 p2 = bbox._min + osg::Vec3(s, 0, 0);
+                    //osg::Vec3 p3 = bbox._min + osg::Vec3(0, t, 0);
+                    //osg::Vec3 p4 = bbox._min + osg::Vec3(0, 0, r);
+                    //osg::Vec3 p5 = bbox._min + osg::Vec3(s, t, 0);
+                    //osg::Vec3 p6 = bbox._min + osg::Vec3(0, t, r);
+                    //osg::Vec3 p7 = bbox._min + osg::Vec3(s, 0, r);
+
+                    //osg::Matrix mat_st = cull->matrix_list[i];
+                    //m_min = m_min * mat_st;
+                    //m_max = m_max * mat_st;
+                    //p2 = p2 * mat_st;
+                    //p3 = p3 * mat_st;
+                    //p4 = p4 * mat_st;
+                    //p5 = p5 * mat_st;
+                    //p6 = p6 * mat_st;
+                    //p7 = p7 * mat_st;
+
+                    ////计算视口空间距离 [-1 to 1] 深度是[-1 to 1]
+                    //m_min = m_min * (*in_mvp);
+                    //m_max = m_max * (*in_mvp);
+                    //p2 = p2 * (*in_mvp);
+                    //p3 = p3 * (*in_mvp);
+                    //p4 = p4 * (*in_mvp);
+                    //p5 = p5 * (*in_mvp);
+                    //p6 = p6 * (*in_mvp);
+                    //p7 = p7 * (*in_mvp);
+
+                    ////根据xy从depth_list获取距离
+                    ////float d0 = sample(new_bbox.center());
+                    //unsigned short d0 = sample(m_min);
+                    //unsigned short d1 = sample(m_max);
+                    //unsigned short d2 = sample(p2);
+                    //unsigned short d3 = sample(p3);
+                    //unsigned short d4 = sample(p4);
+                    //unsigned short d5 = sample(p5);
+                    //unsigned short d6 = sample(p6);
+                    //unsigned short d7 = sample(p7);
+
+                    ////std::cout << d0 << std::endl;
+                    //bool hide = false;
+                    //int s0 = compare(d0, m_min);
+                    //int s1 = compare(d1, m_max);
+                    //int s2 = compare(d2, p2);
+                    //int s3 = compare(d3, p3);
+                    //int s4 = compare(d4, p4);
+                    //int s5 = compare(d5, p5);
+                    //int s6 = compare(d6, p6);
+                    //int s7 = compare(d7, p7);
+
+                    ////如果两个点都不可见 才设置为不显示
+                    //if (
+                    //    s0 == 0 && s1 == 0
+                    //    && s2 == 0 && s3 == 0
+                    //    && s4 == 0 && s5 == 0
+                    //    && s6 == 0 && s7 == 0
+                    //    )
+                    //{
+                    //    hide = true;
+                    //}
+
+
+                    //if (hide)
+                    //{
+                    //    geode->setNodeMask(0xfffffffe);
+                    //}
+                    //else
+                    //{
+                    //    geode->setNodeMask(0xffffffff);
+                    //    cull->show_num++;
+                    //}
+
+
+                    //边界球 世界坐标系
+                    osg::Vec4 bs = cull->bs_list[i];
+                    osg::Vec3 center = osg::Vec3(bs.x(), bs.y(), bs.z());
+                    center = center * (*in_mvp); //世界坐标系
+
+                    //对比深度
+                    unsigned short d0 = sample(center);
+                    int s0 = compare(d0, center);
+
+                    //for (size_t s = 0; s < 4; s++)
+                    //{
+                    //    d0 = sample(center);
+                    //    s0 = compare(d0, center);
+                    //}
+
+                    //如果两个点都不可见 才设置为不显示
+                    bool hide = false;
+                    if (
+                        s0 == 0
+                        //&& s1 == 0
+                        //&& s2 == 0 && s3 == 0
+                        //&& s4 == 0 && s5 == 0
+                        //&& s6 == 0 && s7 == 0
+                        )
+                    {
+                        hide = true;
+                    }
+
+
+                    if (hide)
+                    {
+                        geode->setNodeMask(0xfffffffe);
+                    }
+                    else
+                    {
+                        geode->setNodeMask(0xffffffff);
+                        cull->show_num++;
+                    }
+
+                    cull->all_num++;
+                }
+
+                //
+                //std::cout << cull->show_num << "/" << cull->all_num << std::endl;
+            }
+        }
+
+        osg::Matrix* in_mvp;
+        //osg::observer_ptr<osg::Camera> in_camera; //输入观察摄像机
+        osg::ref_ptr<osg::Image> in_image;//输入的深度image
+        //osg::Vec4* in_fanf; //输入的远近参数
+
+    private:
+        std::vector<unsigned short> depth_list;
+
+        //0 不可见
+        //1 界内可见
+        //2 超界可见
+        inline int compare(unsigned short d, const osg::Vec3& view_point)
+        {
+            float ds = view_point.z() * 0.5 + 0.5;
+            ds *= 0xFFFF;
+
+            //std::cout << "d:" << d << " z:" << ds << std::endl;
+
+            float offset = 0xFFFF * 0.03f; //不知道为什么
+
+            if (d >= 1)
+            {
+                //在屏幕内   
+                if (d >= ds - offset)
+                {
+                    //此点可见
+                    return 1;
+                }
+                //return 0;
+            }
+            else
+            {
+                //超出屏幕
+                //if (0xFFFF > ds - offset)
+                {
+                    //此点可见
+                    return 2;
+                }
+            }
+            return 0;
+        }
+
+        inline unsigned short sample(const osg::Vec3& view_point)
+        {
+            //std::cout << view_point.x() << " " << view_point.y() << std::endl;
+
+            //int x = view_point.x() * viewport2depthimage.x();
+            //int y = view_point.y() * viewport2depthimage.y();
+
+            int image_size = in_image->s();
+
+            //[-1 to 1] to [0 to 1]*image_size
+            int x = (view_point.x() * 0.5 + 0.5) * image_size;
+            int y = (view_point.y() * 0.5 + 0.5) * image_size;
+
+            //std::cout << x << " " << y << std::endl;
+
+            if (x >= 0 && x < image_size
+                && y >= 0 && y < image_size)
+            {
+                size_t index = y * image_size + x;
+                if (index >= 0 && index < depth_list.size()) return depth_list[index];
+                //if (index >= 0 && index < image_size*image_size) return data[index];
+            }
+            return 0; //返回0表示无效
+        }
+
+    };
+#endif //0
+
+
+
+    class OSGEFT_EXPORT PassUpdater_cull2
+        :public PassUpdater
+    {
+    public:
+
+        class CullVisitor
+            :public osg::NodeVisitor
+        {
+        public:
+            CullVisitor(osg::Matrix* _mvp
+                , std::vector<unsigned short>& _depth_list
+                , int _image_size)
+                :osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN)
+                , depth_list(_depth_list)
+                , mvp(_mvp)
+                , image_size(_image_size)
+            {
+                show_num = 0;
+                all_num = 0;
+            }
+            virtual ~CullVisitor() {}
+
+            virtual void apply(osg::Transform& transform)
+            {
+                osg::Matrix m = m_matrix;
+                transform.computeLocalToWorldMatrix(m_matrix, 0);
+                traverse(transform);
+                m_matrix = m;
+            }
+
+            virtual void apply(osg::Geode& node)
+            {
+                //if (node.getNodeMask() == ~0) show_num++;
+                //all_num++;
+
+                osg::BoundingBox bbox = node.getBoundingBox();
+
+                bool hide = testVisiable(bbox);
+
+                //深度0xf0 色彩0xf
+                if (hide)
+                {
+                    //std::cout << "h" << std::endl;
+                    //node.setNodeMask(0xfffffffe);
+                    node.setNodeMask(node.getNodeMask() & 0xFFFFFFF0); //清空后八位
+                    //geode->setCullingActive(false);
+                }
+                else
+                {
+                    //std::cout << "s" << std::endl;
+                    //node.setNodeMask(0xffffffff);
+                    node.setNodeMask(node.getNodeMask() | 0xF); //覆盖后八位
+                    //geode->setCullingActive(true);
+                    //show_num++;
+                }
+
+            }
+
+            //virtual void apply(osg::Node& node)
+            virtual void apply(osg::Group& node)
+            {
+                //osg::PagedLOD* plod = dynamic_cast<osg::PagedLOD*>(&node);
+                //osg::Geode* geode = dynamic_cast<osg::Geode*>(&node);
+                osg::Group* group = &node;
+                //if (geode && geode->getNumDrawables()>0)
+                //{
+                    //osg::BoundingSphere bs = group->getBound();
+                    //osg::Vec3 center = bs.center() * m_matrix;
+
+                    //从group的bs生成一个bbox
+                    osg::BoundingSphere bs = group->getBound();
+                    osg::BoundingBox bbox;
+                    osg::Vec3 wc = bs.center() * m_matrix;
+                    float radius = bs.radius();
+                    bbox.expandBy(wc + osg::Vec3(radius, 0, 0));
+                    bbox.expandBy(wc + osg::Vec3(-radius, 0, 0));
+                    bbox.expandBy(wc + osg::Vec3(0, radius, 0));
+                    bbox.expandBy(wc + osg::Vec3(0, -radius, 0));
+                    bbox.expandBy(wc + osg::Vec3(0, 0, radius));
+                    bbox.expandBy(wc + osg::Vec3(0, 0, -radius));
+
+
+                    bool hide = testVisiable( bbox);
+
+                    if (hide)
+                    {
+                        //std::cout << "h" << std::endl;
+                        //group->setNodeMask(0xfffffffe);
+                        node.setNodeMask(node.getNodeMask() & 0xFFFFFFF0); //清空后八位
+                        //geode->setCullingActive(false);
+                    }
+                    else
+                    {
+                        //std::cout << "s" << std::endl;
+                        //group->setNodeMask(0xffffffff);
+                        node.setNodeMask(node.getNodeMask() | 0xF); //覆盖后八位
+                        //geode->setCullingActive(true);
+                        //show_num++;
+                    }
+
+
+#if 0
+                    //printf("n");
+                    //osg::Drawable* d = geode->getDrawable(0);
+
+                    //计算当前对象的box包裹体 得到6个点
+
+                    //计算全局坐标系下的正确BBOX
+                    //osg::BoundingBox bbox = geode->getBoundingBox();
+                    float s = bbox.xMax() - bbox.xMin();
+                    float t = bbox.yMax() - bbox.yMin();
+                    float r = bbox.zMax() - bbox.zMin();
+                    osg::Vec3 m_min = bbox._min;
+                    osg::Vec3 m_max = bbox._max;
+                    osg::Vec3 p2 = bbox._min + osg::Vec3(s, 0, 0);
+                    osg::Vec3 p3 = bbox._min + osg::Vec3(0, t, 0);
+                    osg::Vec3 p4 = bbox._min + osg::Vec3(0, 0, r);
+                    osg::Vec3 p5 = bbox._min + osg::Vec3(s, t, 0);
+                    osg::Vec3 p6 = bbox._min + osg::Vec3(0, t, r);
+                    osg::Vec3 p7 = bbox._min + osg::Vec3(s, 0, r);
+
+                    osg::Matrix mat_st = m_matrix;
+                    //mat_st.setRotate(osg::Quat());  //去掉旋转值
+                    m_min = m_min * mat_st;
+                    m_max = m_max * mat_st;
+                    p2 = p2 * mat_st;
+                    p3 = p3 * mat_st;
+                    p4 = p4 * mat_st;
+                    p5 = p5 * mat_st;
+                    p6 = p6 * mat_st;
+                    p7 = p7 * mat_st;
+
+                    osg::BoundingBox new_bbox(m_min, m_max);
+                    if (!new_bbox.valid())
+                    {
+                        std::cout << "error !new_bbox.valid()" << std::endl;
+                    }
+
+                    //计算视口空间距离 [-1 to 1] 深度是[-1 to 1]
+                    m_min = m_min * (*mvp);
+                    m_max = m_max * (*mvp);
+                    p2 = p2 * (*mvp);
+                    p3 = p3 * (*mvp);
+                    p4 = p4 * (*mvp);
+                    p5 = p5 * (*mvp);
+                    p6 = p6 * (*mvp);
+                    p7 = p7 * (*mvp);
+
+                    //std::cout << "m_min " << m_min.x()
+                    //    << " " << m_min.y()
+                    //    << " " << m_min.z() << std::endl;
+                    //std::cout << "m_max " << m_max.x()
+                    //    << " " << m_max.y()
+                    //    << " " << m_max.z() << std::endl;
+
+                    //std::cout << "bb:" << m_max.x()- m_min.x() << std::endl;
+                    //std::cout << mvp->getTrans().x()
+                    //    << " " << mvp->getTrans().y()
+                    //    << " " << mvp->getTrans().z() << std::endl;
+
+
+                    //std::cout << m_min.x() << " " << m_min.y() << " " << m_min.z() << std::endl;
+                    //std::cout << m_max.x() << " " << m_max.y() << " " << m_max.z() << std::endl;
+
+
+                    //根据xy从depth_list获取距离
+                    //float d0 = sample(new_bbox.center());
+                    unsigned short d0 = sample(m_min);
+                    unsigned short d1 = sample(m_max);
+                    unsigned short d2 = sample(p2);
+                    unsigned short d3 = sample(p3);
+                    unsigned short d4 = sample(p4);
+                    unsigned short d5 = sample(p5);
+                    unsigned short d6 = sample(p6);
+                    unsigned short d7 = sample(p7);
+
+                    //std::cout << d0 << std::endl;
+                    bool hide = false;
+                    int s0 = compare(d0, m_min);
+                    int s1 = compare(d1, m_max);
+                    int s2 = compare(d2, p2);
+                    int s3 = compare(d3, p3);
+                    int s4 = compare(d4, p4);
+                    int s5 = compare(d5, p5);
+                    int s6 = compare(d6, p6);
+                    int s7 = compare(d7, p7);
+
+                    //如果两个点都不可见 才设置为不显示
+                    if (
+                        s0 == 0 && s1 == 0
+                        && s2 == 0 && s3 == 0
+                        && s4 == 0 && s5 == 0
+                        && s6 == 0 && s7 == 0
+                        )
+                    {
+                        hide = true;
+                        //std::cout << "d0" << std::endl;
+                    }
+                    //if (
+                    //    s0 == 2 && s1 == 2
+                    //    && s2 == 2 && s3 == 2
+                    //    && s4 == 2 && s5 == 2
+                    //    && s6 == 2 && s7 == 2
+                    //    )
+                    //{
+                    //    //hide = true;
+                    //    //std::cout << "d0" << std::endl;
+                    //}
+                    //if (s1 == 1)
+                    //{
+                    //    hide = false;
+                    //    //std::cout << "d1" << std::endl;
+                    //}
+
+                    //if (s0 != 1 && s1 != 1)
+                    //{
+                    //    hide = false;
+                    //    //std::cout << "H" << std::endl;
+                    //}
+
+                    //std::cout << "d1" << s0 << "d2" << s1 << std::endl;
+
+                    if (hide)
+                    {
+                        //std::cout << "h" << std::endl;
+                        group->setNodeMask(0xfffffffe);
+                        //geode->setCullingActive(false);
+                    }
+                    else
+                    {
+                        //std::cout << "s" << std::endl;
+                        group->setNodeMask(0xffffffff);
+                        //geode->setCullingActive(true);
+                        //show_num++;
+                    }
+                    //geode->setCullingActive(false);
+
+                    //all_num++;
+#endif
+
+                //}
+
+                //如果当前group为可见 才会遍历子节点
+                if (!hide)traverse(node);
+            }
+
+            bool testVisiable(const osg::BoundingBox& bbox) const
+            {
+                //计算全局坐标系下的正确BBOX
+                //osg::BoundingBox bbox = geode->getBoundingBox();
+                float s = bbox.xMax() - bbox.xMin();
+                float t = bbox.yMax() - bbox.yMin();
+                float r = bbox.zMax() - bbox.zMin();
+                osg::Vec3 m_min = bbox._min;
+                osg::Vec3 m_max = bbox._max;
+                osg::Vec3 p2 = bbox._min + osg::Vec3(s, 0, 0);
+                osg::Vec3 p3 = bbox._min + osg::Vec3(0, t, 0);
+                osg::Vec3 p4 = bbox._min + osg::Vec3(0, 0, r);
+                osg::Vec3 p5 = bbox._min + osg::Vec3(s, t, 0);
+                osg::Vec3 p6 = bbox._min + osg::Vec3(0, t, r);
+                osg::Vec3 p7 = bbox._min + osg::Vec3(s, 0, r);
+
+                osg::Matrix mat_st = m_matrix;
+                //mat_st.setRotate(osg::Quat());  //去掉旋转值
+                m_min = m_min * mat_st;
+                m_max = m_max * mat_st;
+                p2 = p2 * mat_st;
+                p3 = p3 * mat_st;
+                p4 = p4 * mat_st;
+                p5 = p5 * mat_st;
+                p6 = p6 * mat_st;
+                p7 = p7 * mat_st;
+
+                osg::BoundingBox new_bbox(m_min, m_max);
+                if (!new_bbox.valid())
+                {
+                    std::cout << "error !new_bbox.valid()" << std::endl;
+                }
+
+                //计算视口空间距离 [-1 to 1] 深度是[-1 to 1]
+                m_min = m_min * (*mvp);
+                m_max = m_max * (*mvp);
+                p2 = p2 * (*mvp);
+                p3 = p3 * (*mvp);
+                p4 = p4 * (*mvp);
+                p5 = p5 * (*mvp);
+                p6 = p6 * (*mvp);
+                p7 = p7 * (*mvp);
+
+                //std::cout << "m_min " << m_min.x()
+                //    << " " << m_min.y()
+                //    << " " << m_min.z() << std::endl;
+                //std::cout << "m_max " << m_max.x()
+                //    << " " << m_max.y()
+                //    << " " << m_max.z() << std::endl;
+
+                //std::cout << "bb:" << m_max.x()- m_min.x() << std::endl;
+                //std::cout << mvp->getTrans().x()
+                //    << " " << mvp->getTrans().y()
+                //    << " " << mvp->getTrans().z() << std::endl;
+
+
+                //std::cout << m_min.x() << " " << m_min.y() << " " << m_min.z() << std::endl;
+                //std::cout << m_max.x() << " " << m_max.y() << " " << m_max.z() << std::endl;
+
+
+                //根据xy从depth_list获取距离
+                //float d0 = sample(new_bbox.center());
+                unsigned short d0 = sample(m_min);
+                unsigned short d1 = sample(m_max);
+                unsigned short d2 = sample(p2);
+                unsigned short d3 = sample(p3);
+                unsigned short d4 = sample(p4);
+                unsigned short d5 = sample(p5);
+                unsigned short d6 = sample(p6);
+                unsigned short d7 = sample(p7);
+
+                //std::cout << d0 << std::endl;
+                bool hide = false;
+                int s0 = compare(d0, m_min);
+                int s1 = compare(d1, m_max);
+                int s2 = compare(d2, p2);
+                int s3 = compare(d3, p3);
+                int s4 = compare(d4, p4);
+                int s5 = compare(d5, p5);
+                int s6 = compare(d6, p6);
+                int s7 = compare(d7, p7);
+
+                //如果两个点都不可见 才设置为不显示
+                if (
+                    s0 == 0 && s1 == 0
+                    && s2 == 0 && s3 == 0
+                    && s4 == 0 && s5 == 0
+                    && s6 == 0 && s7 == 0
+                    )
+                {
+                    hide = true;
+                    //std::cout << "d0" << std::endl;
+                }
+                //if (
+                //    s0 == 2 && s1 == 2
+                //    && s2 == 2 && s3 == 2
+                //    && s4 == 2 && s5 == 2
+                //    && s6 == 2 && s7 == 2
+                //    )
+                //{
+                //    //hide = true;
+                //    //std::cout << "d0" << std::endl;
+                //}
+                //if (s1 == 1)
+                //{
+                //    hide = false;
+                //    //std::cout << "d1" << std::endl;
+                //}
+
+                //if (s0 != 1 && s1 != 1)
+                //{
+                //    hide = false;
+                //    //std::cout << "H" << std::endl;
+                //}
+
+                //std::cout << "d1" << s0 << "d2" << s1 << std::endl;
+
+                return hide;
+
+                //if (hide)
+                //{
+                //    //std::cout << "h" << std::endl;
+                //    group->setNodeMask(0xfffffffe);
+                //    //geode->setCullingActive(false);
+                //}
+                //else
+                //{
+                //    //std::cout << "s" << std::endl;
+                //    group->setNodeMask(0xffffffff);
+                //    //geode->setCullingActive(true);
+                //    //show_num++;
+                //}
+                //geode->setCullingActive(false);
+
+                //all_num++;
+            }
+
+            //0 不可见
+            //1 界内可见
+            //2 超界可见
+            int compare(unsigned short d, const osg::Vec3& view_point) const
+            {
+                float ds = view_point.z() * 0.5 + 0.5;
+                ds *= 0xFFFF;
+
+                //std::cout << "d:" << d << " z:" << ds << std::endl;
+
+                float offset = 0xFFFF * 0.0; //不知道为什么
+
+                if (d >= 1)
+                {
+                    //在屏幕内   
+                    if (d >= ds - offset)
+                    {
+                        //此点可见
+                        return 1;
+                    }
+                    //return 0;
+                }
+                else
+                {
+                    //超出屏幕
+                    //if (0xFFFF > ds - offset)
+                    {
+                        //此点可见
+                        return 2;
+                    }
+                }
+                return 0;
+            }
+
+            unsigned short sample(const osg::Vec3& view_point) const
+            {
+                //std::cout << view_point.x() << " " << view_point.y() << std::endl;
+
+                //int x = view_point.x() * viewport2depthimage.x();
+                //int y = view_point.y() * viewport2depthimage.y();
+
+                //[-1 to 1] to [0 to 1]*image_size
+                int x = (view_point.x() * 0.5 + 0.5) * image_size;
+                int y = (view_point.y() * 0.5 + 0.5) * image_size;
+
+                //std::cout << x << " " << y << std::endl;
+
+                //扩展边缘
+                if (x < 0) x = 0;
+                else if (x >= image_size) x = image_size - 1;
+                else if (y < 0) y = 0; //不知道为什么要else
+                else if (y >= image_size) y = image_size - 1;
+
+                if (x >= 0 && x < image_size
+                    && y >= 0 && y < image_size)
+                {
+                    size_t index = y * image_size + x;
+                    if (index >= 0 && index < depth_list.size()) return depth_list[index];
+                    //if (index >= 0 && index < image_size*image_size) return data[index];
+                }
+                return 0; //返回0表示无效
+            }
+
+        private:
+            int image_size;
+            osg::Matrix* mvp;  //mv
+            std::vector<unsigned short>& depth_list;
+            osg::Matrix m_matrix;//当前矩阵
+
+        public:
+            int show_num;
+            int all_num;
+        };
+
+
+        PassUpdater_cull2() {}
+        virtual ~PassUpdater_cull2() {}
+
+        virtual void onSetup(osg::Camera* _camera)
+        {
+            camera = _camera;
+        }
+
+        virtual void run()
+        {
+            //osg::Camera* camera = dynamic_cast<osg::Camera*>(node);
+            if (camera)
+            {
+                //printf("a");
+
+                //一次性转换全部距离[0-1] 为了节约计算量
+                if (depth_list.size() != in_image->s()*in_image->t())
+                {
+                    depth_list.resize(in_image->s()*in_image->t());
+                }
+                unsigned short* data = (unsigned short*)in_image->data(); //GL_FLOAT [0-1]
+
+//#pragma omp parallel for
+                for (size_t i = 0; i < depth_list.size(); i++)
+                {
+                    depth_list[i] = data[i];// *(in_fanf.w() - in_fanf.z()) + in_fanf.z(); //计算真实距离
+                }
+
+                //一次性计算MVP矩阵 为了节约计算量
+                //osg::Matrix mvp = in_camera->getViewMatrix() * in_camera->getProjectionMatrix();
+
+                //窗口坐标to深度图坐标转换比例 为了节约计算量
+                //osg::Viewport* vp = in_camera->getViewport();
+                //osg::Vec2 viewport2depthimage(in_image->s() / vp->width(), in_image->t() / vp->height());
+
+                //遍历当前摄像机下的全部节点 设置对应的cull
+                osg::ref_ptr< CullVisitor > cull =
+                    new CullVisitor(in_mvp/*, in_fanf*/, depth_list/*, viewport2depthimage*/, in_image->s());
+
+                //
+                camera->accept(*cull);
+
+                //
+                //std::cout << cull->show_num << "/" << cull->all_num << std::endl;
+            }
+        }
+
+        osg::Matrix* in_mvp;
+        //osg::observer_ptr<osg::Camera> in_camera; //输入观察摄像机
+        osg::ref_ptr<osg::Image> in_image;//输入的深度image
+        //osg::Vec4* in_fanf; //输入的远近参数
+
+    private:
+
+        std::vector<unsigned short> depth_list;
+    };
+
+
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_PASS_UPDATER_H

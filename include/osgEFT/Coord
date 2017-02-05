@@ -1,0 +1,22 @@
+
+#ifndef OSGEFT_COORD_H
+#define OSGEFT_COORD_H
+
+#include<osgEFT/Export>
+
+namespace osgEFT
+{
+    struct Coord
+    {
+        Coord(float _rel = 0, int _abs = 0) :abs(_abs), rel(_rel) {}
+        int abs;
+        float rel;
+
+        bool isABS() { return rel == 0.0; }
+        int get(int r) { return r*rel + abs; }
+    };
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_COORD_H

@@ -1,0 +1,37 @@
+
+#ifndef OSGEFT_TARGET_H
+#define OSGEFT_TARGET_H
+
+#include<osgEFT/Export>
+
+#include <osg/Texture>
+
+namespace osgEFT
+{
+
+    enum TARGET_TYPE
+    {
+        DT_ALPHA
+        , DT_LUMINANCE
+        , DT_LUMINANCE_ALPHA
+        , DT_RGB
+        , DT_RGBA
+        , DT_DEPTH
+    };
+
+
+    class OSGEFT_EXPORT Target
+        :public osg::Referenced
+    {
+    public:
+        Target() {}
+
+        osg::ref_ptr< osg::Texture > texture;
+        osg::ref_ptr< osg::Image > image;
+    };
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_TARGET_H
+

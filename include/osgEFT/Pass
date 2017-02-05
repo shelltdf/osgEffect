@@ -1,0 +1,39 @@
+
+#ifndef OSGEFT_PASS_H
+#define OSGEFT_PASS_H
+
+#include<osgEFT/Export>
+
+#include <osg/Camera>
+#include <osg/Referenced>
+#include <osg/ref_ptr>
+
+#include <osgEFT/Coord>
+//#include <osgEFT/PassUpdater>
+
+
+namespace osgEFT
+{
+    class PassUpdater;
+    class OSGEFT_EXPORT Pass
+        :public osg::Referenced
+    {
+    public:
+        Pass()
+            :is_main_camera(false) {}
+
+        void setPassUpdater(PassUpdater* pu);
+
+        Coord coord_x;
+        Coord coord_y;
+        Coord coord_w;
+        Coord coord_h;
+        osg::ref_ptr< osg::Camera > camera;
+
+        bool is_main_camera;
+        osg::ref_ptr< osg::Group > main_camera_scene_root;
+    };
+
+}//namespace osgEFT
+
+#endif //OSGEFT_PASS_H
