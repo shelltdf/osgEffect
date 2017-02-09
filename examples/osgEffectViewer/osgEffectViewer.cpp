@@ -13,7 +13,33 @@
 #include <osgUtil/Optimizer>
 
 #include <osgEFT/EffectManager>
+#include <osgEFT/NFX>
 
+
+
+
+void testPrecompileShader()
+{
+    osgEFT::PrecompileShader ps;
+    ps.addShader("aaa", "AAA");
+    ps.addShader("bbb", "BBB");
+    ps.addShader("ccc", "CCC");
+    ps.addShader("ddd", "DDD");
+    ps.addShader("eee", "#include<aaa>E#include<bbb>E#include<ccc>E#include<ddd>");
+
+    ps.addShader("a1", "1");
+    ps.addShader("a2", "#include<a1>2");
+    ps.addShader("a3", "#include<a2>3");
+    ps.addShader("a4", "#include<a3>4");
+    ps.addShader("a5", "#include<a4>5");
+
+    std::string s = ps.getShader("eee");
+    printf("%s\n", s.c_str());
+
+    s = ps.getShader("a5");
+    printf("%s\n", s.c_str());
+
+}
 
 osg::Program* loadProgram(const std::string& vs_string, const std::string& fs_string)
 {
@@ -25,6 +51,49 @@ osg::Program* loadProgram(const std::string& vs_string, const std::string& fs_st
     return p;
 }
 
+
+void setEffect(osg::StateSet* ss)
+{
+    osgEFT::PrecompileShader ps;
+    ps.addShader("vs", 
+        "varying vec4 TextureCoord0;\n"
+        "void main()\n"
+        "{\n"
+        "   TextureCoord0 = gl_TextureMatrix[0] * gl_MultiTexCoord0;\n"
+        "   gl_Position = ftransform();\n"
+        "}\n"
+        "\n"
+    );
+    ps.addShader("fs",
+        "varying vec4 TextureCoord0;\n"
+        "uniform sampler2D tex_color;\n"
+        "void main()\n"
+        "{\n"
+        "   vec4 color = texture2D(tex_color,TextureCoord0.st);\n"
+        "   gl_FragColor = vec4(color.rgb,1);\n"
+        "}\n"
+        "\n"
+    );
+
+    //shader
+    ss->setAttributeAndModes(
+        loadProgram(ps.getShader("vs"), ps.getShader("fs"))
+        , osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+}
+
+void applySufaceMaterial(osg::StateSet* ss, const std::string& filename)
+{
+    osg::ref_ptr<osgEFT::NFX> nfx = new osgEFT::NFX();
+
+    if (nfx->load(filename))
+    {
+        osg::StateSet* sm = nfx->getSufaceMaterial();
+        if (sm)
+        {
+            ss->merge(*sm);
+        }
+    }
+}
 
 osgEFT::PassUpdater_lightspace* newShadowPassAndTarget(osgEFT::EffectManager* em, osg::Light* light, osg::Camera* camera
     , float _near, float _far, int shadowmap_size
@@ -114,7 +183,7 @@ public:
     EffectScript(osg::Group* root, osg::Group* scene_root, osg::Group* scene, osg::Light* light, osg::Camera* main_camera)
         :m_root(root), m_scene_root(scene_root), m_scene(scene)
         , m_light(light), m_camera(main_camera)
-        , m_enable(false)
+        //, m_enable(false)
     {
         //create EffectManager
         m_em = new osgEFT::EffectManager();
@@ -123,7 +192,8 @@ public:
         //CullUpdater
         main_camera->addCullCallback(new CullUpdater(m_em));
 
-        enableEffect();
+        //enableEffect();
+        disableEffect();
     }
     virtual ~EffectScript() {}
 
@@ -137,26 +207,22 @@ public:
         {
             if (ea.getEventType() == osgGA::GUIEventAdapter::KEYUP)
             {
-                if (ea.getKey() == osgGA::GUIEventAdapter::KEY_A)
+                if (ea.getKey() == osgGA::GUIEventAdapter::KEY_1)
                 {
-                    //printf("a");
+                    disableEffect();
+                }
+                if (ea.getKey() == osgGA::GUIEventAdapter::KEY_2)
+                {
+                    enableEffect();
+                }
 
-                    if (m_enable)
-                    {
-                        disableEffect();
-                    }
-                    else
-                    {
-                        enableEffect();
-                    }
 
-                    //resize
-                    osgViewer::GraphicsWindow* gw = dynamic_cast<osgViewer::GraphicsWindow*>(viewer->getCamera()->getGraphicsContext());
-                    if (gw)
-                    {
-                        int x, y, w, h; gw->getWindowRectangle(x, y, w, h);
-                        m_em->resize(w, h);
-                    }
+                //resize
+                osgViewer::GraphicsWindow* gw = dynamic_cast<osgViewer::GraphicsWindow*>(viewer->getCamera()->getGraphicsContext());
+                if (gw)
+                {
+                    int x, y, w, h; gw->getWindowRectangle(x, y, w, h);
+                    m_em->resize(w, h);
                 }
             }
         }
@@ -172,7 +238,7 @@ private:
     osg::ref_ptr<osg::Group> m_scene;
     osg::ref_ptr<osg::Light> m_light;
     osg::ref_ptr<osg::Camera> m_camera;
-    bool m_enable;
+    //bool m_enable;
 };
 
 
@@ -193,9 +259,12 @@ void EffectScript::disableEffect(/*osg::Group* parent, osg::Group* scene, osg::L
     //buffer
     m_em->newTarget("color_map", osgEFT::DT_RGBA);
     m_em->setOutput(pid, osg::Camera::BufferComponent::COLOR_BUFFER0, "color_map", 4);
+
+    //
     pid = m_em->addPass(new osg::Camera(), true, osg::Camera::POST_RENDER, osgEFT::Coord(1.0, 0), osgEFT::Coord(1.0, 0));
     m_em->setInput(pid, 0, "color_map");
 
+#if 0
     //shader
     m_em->getPassStateSet(pid)->setAttributeAndModes(
         loadProgram(
@@ -217,8 +286,9 @@ void EffectScript::disableEffect(/*osg::Group* parent, osg::Group* scene, osg::L
             "\n"
         )
         , osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+#endif // 0
 
-    m_enable = false;
+    //m_enable = false;
 }
 
 void EffectScript::enableEffect(/*osg::Group* parent, osg::Group* scene, osg::Light* light, osg::Camera* camera*/)
@@ -529,17 +599,19 @@ void EffectScript::enableEffect(/*osg::Group* parent, osg::Group* scene, osg::Li
 
     }
 
-    m_enable = true;
+    //m_enable = true;
 }
 
 
 
 int main(int argc, char** argv)
 {
+    testPrecompileShader();
+
     //input file
     std::string input_filepath = "../data/";
-    std::string filename = "house.obj";
-    //std::string filename = "tire.obj";
+    //std::string filename = "house.obj";
+    std::string filename = "tire.obj";
 
     //create viewer
     osgViewer::Viewer viewer;
@@ -577,6 +649,9 @@ int main(int argc, char** argv)
     }
     scene->addChild(node);
 
+    //
+    //setEffect(node->getOrCreateStateSet());
+    applySufaceMaterial(node->getOrCreateStateSet(), "../data/phong/phong.nfx");
 
     //
 #if 1
@@ -587,10 +662,10 @@ int main(int argc, char** argv)
 
 
     //
-    //viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
-    //viewer.addEventHandler(new osgViewer::ThreadingHandler);
+    viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
+    viewer.addEventHandler(new osgViewer::ThreadingHandler);
     //viewer.addEventHandler(new osgViewer::WindowSizeHandler);
-    //viewer.addEventHandler(new osgViewer::StatsHandler);
+    viewer.addEventHandler(new osgViewer::StatsHandler);
     //viewer.addEventHandler(new osgViewer::RecordCameraPathHandler);
     //viewer.addEventHandler(new osgViewer::LODScaleHandler);
     //viewer.addEventHandler(new osgViewer::ScreenCaptureHandler);

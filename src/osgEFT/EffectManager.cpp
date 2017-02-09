@@ -1,12 +1,10 @@
 
 #include<osgEFT/EffectManager>
 
-
-
 using namespace osgEFT;
 
 
-//处理resize消息
+//resize event
 class EffectManagerEventHandler
     :public osgGA::GUIEventHandler
 {
@@ -27,7 +25,6 @@ public:
         return osgGA::GUIEventHandler::handle(ea, aa, obj, nv);
     }
 };
-
 
 
 EffectManager::EffectManager()
@@ -180,11 +177,12 @@ int EffectManager::addPass(osg::Camera* camera, bool render_rect
 #endif
 
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    //camera->setClearColor(osg::Vec4(0.5, 0.5, 0.5, 1));
-    //camera->setClearColor(osg::Vec4(1.0, 0.5, 1.0, 1));
+    camera->setClearColor(osg::Vec4(0.0, 0.0, 0.0, 1));
+
+    camera->setViewport(0);
     camera->setViewport(pass->coord_x.get(512), pass->coord_y.get(512)
         , pass->coord_w.get(512), pass->coord_h.get(512)); //default
-    //camera->setRenderOrder(osg::Camera::RenderOrder::PRE_RENDER, 0);
+
     camera->setRenderOrder(render_order, 0);
     
     //camera->getOrCreateStateSet()->setRenderBinMode(osg::StateSet::RenderBinMode::OVERRIDE_PROTECTED_RENDERBIN_DETAILS);
@@ -199,12 +197,9 @@ int EffectManager::addPass(osg::Camera* camera, bool render_rect
 
         camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
         camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
-        //pass->setProjectionMatrixAsOrtho(-0.1, 1.1, -0.1, 1.1, 0, 1);
-        camera->setProjectionMatrixAsOrtho(-1, 1, -1, 1, 0, 1);
-        //camera->setProjectionMatrixAsOrtho(-1.01, 1.01, -1.01, 1.01, 0, 1);
+        camera->setProjectionMatrixAsOrtho(-1.0, 1.0, -1.0, 1.0, 0, 1);
         camera->setViewMatrixAsLookAt(osg::Vec3(0, 0, 0.999999), osg::Vec3(0, 0, 0), osg::Vec3(0, 1, 0));
-        camera->getOrCreateStateSet()->setMode(GL_LIGHTING, false);
-        //pass->setViewport(0, 0, 1, 1);
+        camera->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
     }
 
     return mPasses.size() - 1;
@@ -221,36 +216,11 @@ int EffectManager::addPassFromMainCamera(osg::Camera* camera, osg::Group* camera
     mPasses.push_back(pass);
 
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    //camera->setClearColor(osg::Vec4(1, 0, 1, 1));
+    camera->setClearColor(osg::Vec4(0, 0, 0, 1));
     //camera->setRenderOrder(osg::Camera::RenderOrder::POST_RENDER, 0);
 
     return mPasses.size() - 1;
 }
-
-#if 0
-int EffectManager::addPassFromMainCamera2(osg::View* view, osg::Camera* _camera, Coord w, Coord h)
-{
-    osg::Camera* camera = new osg::Camera();
-    view->addSlave(camera);
-    camera->setName("slave camera");
-    //this->addChild(camera);
-    camera->setGraphicsContext(_camera->getGraphicsContext());
-    camera->setRenderOrder(osg::Camera::RenderOrder::POST_RENDER, 1);
-
-    Pass* pass = new Pass();
-    pass->camera = camera;
-    pass->coord_w = w;
-    pass->coord_h = h;
-    //pass->is_main_camera = true;
-    //pass->main_camera_scene_root = camera_scene_root;
-    mPasses.push_back(pass);
-
-    camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    camera->setClearColor(osg::Vec4(1, 0, 0, 1));
-
-    return mPasses.size() - 1;
-}
-#endif
 
 osg::StateSet* EffectManager::getPassStateSet(int i)
 { 
@@ -267,6 +237,22 @@ osg::StateSet* EffectManager::getPassStateSet(int i)
         }
     }
     return 0; 
+}
+
+void EffectManager::setPassStateSet(int i, osg::StateSet* ss)
+{
+    Pass* pass = getPass(i);
+    if (pass)
+    {
+        if (pass->is_main_camera)
+        {
+            pass->main_camera_scene_root->setStateSet(ss);
+        }
+        else
+        {
+            pass->camera->setStateSet(ss);
+        }
+    }
 }
 
 void EffectManager::setInput(int pass_id, std::string node_name, unsigned int cull_mask)
@@ -368,10 +354,16 @@ void EffectManager::resize(float w, float h)
         //
         //printf("w = %f h = %f\n", mPasses[i]->coord_w.get(w), mPasses[i]->coord_h.get(h));
 
-        //更新摄像机视口
+        //set viewport
         osg::Camera* camera = mPasses[i]->camera;
-        camera->setViewport(mPasses[i]->coord_x.get(w), mPasses[i]->coord_y.get(h)
-            , mPasses[i]->coord_w.get(w), mPasses[i]->coord_h.get(h));
+        float vx = mPasses[i]->coord_x.get(w);
+        float vy = mPasses[i]->coord_y.get(h);
+        float vw = mPasses[i]->coord_w.get(w);
+        float vh = mPasses[i]->coord_h.get(h);
+
+        camera->setViewport(0); //compulsory removal
+        camera->setViewport(vx, vy, vw, vh);
+
 
         //
         if (mPasses[i]->is_main_camera)
@@ -385,7 +377,7 @@ void EffectManager::resize(float w, float h)
             }
         }
 
-        //更新渲染目标
+        //dirty target texture
         osg::Camera::BufferAttachmentMap bam = camera->getBufferAttachmentMap();
         for (auto it = bam.begin(); it != bam.end(); it++)
         {
@@ -395,7 +387,8 @@ void EffectManager::resize(float w, float h)
                 osg::Texture2D* tex2d = dynamic_cast<osg::Texture2D*>(tex);
                 if (tex2d)
                 {
-                    tex2d->setTextureSize(mPasses[i]->coord_w.get(w), mPasses[i]->coord_h.get(h));
+                    //tex2d->setTextureSize(mPasses[i]->coord_w.get(w), mPasses[i]->coord_h.get(h));
+                    tex2d->setTextureSize(vw, vh);
                     tex2d->dirtyTextureObject();
                     tex2d->dirtyTextureParameters();
                 }

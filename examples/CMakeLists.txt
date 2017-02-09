@@ -1,1 +1,3 @@
 ADD_SUBDIRECTORY(osgEffectViewer)
+ADD_SUBDIRECTORY(osgSufaceMaterialViewer)
+ADD_SUBDIRECTORY(osgComposeViewer)

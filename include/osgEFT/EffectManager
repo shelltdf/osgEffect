@@ -20,24 +20,7 @@
 
 
 
-/*
-* 
-* <compose>
-*   <slot name="default"/>
-*   <target name="color" type="DT_RGBA"/>
-*   <target name="depth" type="DT_DEPTH"/>
-*   <pass render_rect=false wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
-*       <output slot_name="default" CT = "COLOR_BUFFER">
-*       <output slot_name="depth" CT = "DEPTH_BUFFER">
-*       <updater type="shadowmap">
-*       <program vs="aa" fs = "bb">
-*   </pass>
-*   <pass render_rect=true wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
-*       <input target_name="color" unit=1>
-*   </pass>
-* </compose>
-*
-*/
+
 
 #define USE_CAMERA_CHILD 1
 
@@ -55,7 +38,7 @@ namespace osgEFT
             :osg::Group(ref, copyop)
         {}
 
-        META_Node(osgEFT, EffectManager);
+        //META_Node(osgEFT, EffectManager);
 
         //清理全部设置
         void cleanUp()
@@ -66,6 +49,10 @@ namespace osgEFT
 
             for (size_t i = 0; i < mPasses.size(); i++)
             {
+                if (mPasses[i]->is_main_camera)
+                {
+                    mPasses[i]->main_camera_scene_root->setStateSet(0);
+                }
                 this->removeChild(mPasses[i]->camera);
             }
             mPasses.clear();
@@ -97,7 +84,10 @@ namespace osgEFT
         int addPassFromMainCamera(osg::Camera* pass, osg::Group* camera_scene_root, Coord w = Coord(1, 0), Coord h = Coord(1, 0));
         //int addPassFromMainCamera2(osg::View* view, osg::Camera* camera, Coord w = Coord(1, 0), Coord h = Coord(1, 0));
         Pass* getPass(size_t i) { if (i < mPasses.size()) { return mPasses[i]; } else { return 0; } }
+
         osg::StateSet* getPassStateSet(int i);
+        void setPassStateSet(int i, osg::StateSet* ss);
+
 
         //链接场景关系
         void setInput(int pass_id, std::string node_name, unsigned int cull_mask = 0xffffffff);

@@ -15,6 +15,8 @@ SET(NIUBI_SETUP_HEADERS
     
     ${HEADER_PATH}/EffectManager
     ${HEADER_PATH}/Frustrum
+
+    ${HEADER_PATH}/NFX
     
     ${HEADER_PATH}/Utils
 )
@@ -26,6 +28,7 @@ SET(NIUBI_SETUP_SOURCES
     
     EffectManager.cpp
     
+	NFX.cpp
     Utils.cpp
 )
 
