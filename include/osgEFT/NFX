@@ -1,0 +1,273 @@
+#ifndef OSGEFT_NFX_H
+#define OSGEFT_NFX_H
+
+#include<osgEFT/Export>
+
+#include<osgEFT/EffectManager>
+
+#include <osg/StateSet>
+#include <osg/Texture1D>
+#include <osg/Texture2D>
+#include <osg/Texture3D>
+#include <osg/MatrixTransform>
+#include <osgDB/XmlParser>
+#include <osgDB/ReadFile>
+#include <osgDB/FileNameUtils>
+#include <osgDB/FileUtils>
+
+
+
+/*
+*
+* <nfx>
+*   <texture name ="aaa" type="2d">
+*       <image filename="default">
+*       <buffer w="" h="" internal_format = "RGBA">
+*   </texture>
+*   <shader name ="aaa" type="vs">
+*       <parameter name="parameter_a">
+*       <text>
+*           <![CDATA[
+*               shader text
+*           ]]>
+*       </text>
+*   </shader>
+*   <sufacematerial name ="aaa" >
+*       <sampler name="tex_color" unit="0" texture="diffuse"/>
+*       <uniform name="aa" type = "float"> 1.0 </uniform>
+*       <program vs="aa" fs = "bb">
+*   </sufacematerial>
+* </nfx>
+*
+*/
+
+
+/*
+* <nfx>
+*   <slot name="default">
+*       <model filename="aaaaa.obj"/>
+*       <model filename="bbbbb.obj"/>
+*   </slot>
+*   <slot name="glass"/> </slot>
+*   <slot name="water"/> </slot>
+*   <slot name="tree"/> </slot>
+*   <texture name="color" type="RGBA"/>
+*   <texture name="nornal" type="RGBA"/>
+*   <texture name="depth" type="DEPTH"/>
+*   <compose name ="aaa">
+*       <view hud=false xa=1.0 xr=0.0 ya=1.0 yr=0.0 wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
+*           <input target_name="nornal">
+*           <output target_name="color" buffercomponent="DDD" multisamplesamples="0">
+*           <output target_name="nornal">
+*           <output target_name="depth">
+*           <updater type="shadowmap">
+*           <uniform name="aa" type = "float"> 1.0 </uniform>
+*           <program vs="aa" fs="bb">
+*       </view>
+*       <view hud=true wa=1.0 wr=0.0 ha=1.0 hr=0.0 >
+*           <input target_name="color" unit=1>
+*           <sufacematerial name="bb">
+*       </view>
+*   </compose>
+* </nfx>
+*/
+
+
+
+namespace osgEFT
+{
+    class OSGEFT_EXPORT PrecompileShader
+    {
+    public:
+
+        void addShader(const std::string& shader_name, const std::string& shader_string)
+        {
+            mShaderMap[shader_name] = shader_string;
+        }
+
+        std::string getShader(const std::string& shader_name);
+
+    private:
+        std::map< std::string, std::string > mShaderMap;
+    };
+
+    class OSGEFT_EXPORT NFX
+        :public osg::Referenced
+    {
+   
+    private:
+
+        enum TextureType
+        {
+            TT_Null,
+            TT_1D, TT_2D, TT_3D
+        };
+        enum ShaderType
+        {
+            ST_Null,
+            ST_INC = ST_Null,
+            ST_VS, ST_FS, ST_GS
+        };
+
+        // shader
+        class Shader :public osg::Referenced
+        {
+        public:
+            std::string name;
+            ShaderType type;
+            std::string text;
+        };
+
+        // texutre
+        //class Texutre :public osg::Referenced
+        //{
+        //public:
+        //    int type;
+        //    std::string image_filename;
+        //    int w;
+        //    int h;
+        //    int internal_format;
+        //};
+
+        // suface material
+        class SufaceMaterial :public osg::Referenced
+        {
+        public:
+            std::string name;
+            osg::ref_ptr<osg::StateSet> mStateSet;
+        };
+
+
+        //Slot
+        class Slot :public osg::Referenced
+        {
+        public:
+            std::string name;
+            std::multimap<std::string,osg::Vec3> mFileList;
+        };
+
+
+        // compose
+        class Compose :public osg::Referenced
+        {
+        public:
+
+            class CmaeraUpdater :public osg::Referenced
+            {
+            public:
+                int type;
+            };
+
+            class OutputBuffer :public osg::Referenced
+            {
+            public:
+                OutputBuffer() :mMultisampleSamples(0) {}
+                std::string mName;
+                osg::Camera::BufferComponent mBufferComponents;
+                int mMultisampleSamples;
+            };
+
+            class RenderView :public osg::Referenced
+            {
+            public:
+                RenderView()
+                    :forward(true), hud(false)
+                    , x(0, 0), y(0, 0)
+                    , w(1, 0), h(1, 0)
+                    , render_order(osg::Camera::POST_RENDER)
+                {}
+                bool forward;
+                bool hud;
+                osg::Camera::RenderOrder render_order;
+                std::vector<std::string> mInputNames;  //texture or slot
+                std::vector< osg::ref_ptr< OutputBuffer > > mOutputs;
+                osg::ref_ptr<CmaeraUpdater> mCmaeraUpdater;
+                osg::ref_ptr<osg::StateSet> mStateSet;
+                osgEFT::Coord x;
+                osgEFT::Coord y;
+                osgEFT::Coord w;
+                osgEFT::Coord h;
+            };
+
+            std::vector<osg::ref_ptr<RenderView> > mRenderViewList;
+        };
+
+    public:
+
+        NFX();
+        ~NFX();
+
+        bool load(const std::string& filename);
+        //std::string save();
+        void clean();
+
+        osg::StateSet* getSufaceMaterial(const std::string& name = "");
+
+        bool applyCompose(EffectManager* em
+            , osg::Group* scene, osg::Camera* camera
+            , const std::string& name = "");
+
+    private:
+
+        std::string dir;
+
+        PrecompileShader ps;
+
+        std::map < std::string, osg::ref_ptr<Shader> > mShaderList;
+        std::map < std::string, osg::ref_ptr<osg::Texture> > mTexutreList;
+        std::map < std::string, osg::ref_ptr<SufaceMaterial> > mSufaceMaterialList;
+        std::map < std::string, osg::ref_ptr<Compose> > mComposeList;
+        std::map < std::string, osg::ref_ptr<Slot> > mSlotList;
+
+        bool parserShader(osgDB::XmlNode* node);
+        bool parserTexutre(osgDB::XmlNode* node);
+        bool parserSufaceMaterial(osgDB::XmlNode* node);
+        bool parserSlot(osgDB::XmlNode* node);
+        bool parserCompose(osgDB::XmlNode* node);
+
+        TextureType parserTextureType(const std::string& str);
+        GLuint parserTextureFormat(const std::string& str);
+        ShaderType parserShaderType(const std::string& str);
+        osg::Camera::BufferComponent parserBufferComponent(const std::string& str);
+
+        osg::Program* parserProgram(osgDB::XmlNode* node);
+        osg::Uniform* parserUniform(osgDB::XmlNode* node);
+
+        bool parserBool(const std::string& str);
+
+
+        std::vector< std::string > split(const std::string& s, const std::string& delim)
+        {
+            std::vector< std::string > ret;
+            size_t last = 0;
+            size_t index = s.find_first_of(delim, last);
+            while (index != std::string::npos)
+            {
+                if (index - last > 0) ret.push_back(s.substr(last, index - last));
+                last = index + 1;
+                index = s.find_first_of(delim, last);
+            }
+            if (last < s.size())
+            {
+                ret.push_back(s.substr(last, index - last));
+            }
+            return ret;
+        }
+
+        std::string trim(const std::string& s)
+        {
+            std::string ret;
+            if (s.empty()) { return s; }
+
+            ret.erase(0, s.find_first_not_of(" "));
+            ret.erase(s.find_last_not_of(" ") + 1);
+
+            return ret;
+        }
+    };
+
+
+}//namespace osgEFT
+
+
+#endif //OSGEFT_NFX_H
