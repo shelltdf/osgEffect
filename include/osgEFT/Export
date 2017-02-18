@@ -1,9 +1,3 @@
-/* -*-c++-*- osgXI - Copyright(C) 2010-2012 Wang Guanqun & Wang Rui.
-*
-* This module is licensed based on the GNU Lesser General Public License
-* version 2.1 ("LGPL"), which is located at:
-* http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-*/
 
 #ifndef OSGEFT_EXPORT_H
 #define OSGEFT_EXPORT_H
